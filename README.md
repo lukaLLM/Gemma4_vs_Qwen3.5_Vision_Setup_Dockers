@@ -8,11 +8,13 @@ This repo builds on the earlier Qwen-only setup and turns it into a local compar
 
 LOCAL AI / VLM SETUP SERIES:
 
-- 1. Build the Best Vision Setup (No Ollama): https://www.youtube.com/watch?v=-sl0oe3-Awc
-- 2. Speed Tune Your Vision AI (30s -> 2s): https://www.youtube.com/watch?v=ZtGOZvkuTcw
-- 3. Process 2-Hour Videos FAST: https://www.youtube.com/watch?v=BxDfOPcak5k
-- 4. The Ultimate Local AI Coding Workflow: https://www.youtube.com/watch?v=11rA29YacB8
-- 5. This repo: next compare-lab video based on Gemma 4 + Qwen 3.5
+📹 THE ULTIMATE LOCAL AI & VLM SETUP SERIES:
+- 1️⃣ Build the Best Vision Setup (No Ollama): https://www.youtube.com/watch?v=-sl0oe3-Awc
+- 2️⃣ Speed Tune Your Vision AI (30s → 2s): https://www.youtube.com/watch?v=ZtGOZvkuTcw
+- 3️⃣ Process 2-Hour Videos FAST: https://www.youtube.com/watch?v=BxDfOPcak5k
+- 4️⃣ The Ultimate Local AI Coding Workflow: https://www.youtube.com/watch?v=11rA29YacB8 
+- 5️⃣🆕 Gemma 4 vs Qwen 3.5 Vision AI: One Model Wasn't Even Close!: https://www.youtube.com/watch?v=lqjuztEiyD0
+
 
 Previous base repo:
 
@@ -30,6 +32,57 @@ Previous base repo:
 
 The app schema supports up to 2 videos per compare request. The included Docker profiles are intentionally conservative and currently keep each vLLM server at `1` image and `1` video per prompt with `--limit-mm-per-prompt`.
 
+
+## Video Preprocessing Pipeline
+
+```mermaid
+flowchart TD
+    UI["🖥️ Gradio UI
+    ─────────────────────
+    target_height · target_video_fps
+    segment_max_duration_s · segment_overlap_s
+    segment_workers"]
+
+    Preprocess["🔧 ffmpeg re-encode
+    ─────────────────────
+    scale=-2:target_height · fps cap"]
+
+    Chunk{"segment_max_duration_s > 0?"}
+
+    Segments["✂️ Split into N chunks
+    with overlap"]
+
+    Full["▶ Single full-video clip"]
+
+    Parallel["🔀 Dispatch N parallel requests
+    (segment_workers)"]
+
+    vLLM["🚀 vLLM  /v1/chat/completions
+    ─────────────────────
+    --max-num-seqs caps concurrency"]
+
+    Result["📊 Results merged → final output"]
+
+    UI        --> Preprocess
+    Preprocess --> Chunk
+    Chunk      -- "Yes" --> Segments --> Parallel --> vLLM
+    Chunk      -- "No"  --> Full               --> vLLM
+    vLLM       --> Result
+
+    classDef ui        fill:#4A90D9,stroke:#2C5F8A,color:#fff
+    classDef proc      fill:#5BA85A,stroke:#3A7039,color:#fff
+    classDef decision  fill:#E8A838,stroke:#B07820,color:#fff
+    classDef branch    fill:#7B68C8,stroke:#5248A0,color:#fff
+    classDef server    fill:#E05C5C,stroke:#A83838,color:#fff
+    classDef result    fill:#4ABFBF,stroke:#2E8888,color:#fff
+
+    class UI ui
+    class Preprocess proc
+    class Chunk decision
+    class Segments,Full,Parallel branch
+    class vLLM server
+    class Result result
+```
 ## Benchmark Media
 
 Sample test media lives in [Benchmarks](/home/luke/Documents/Code/Gemma4_Qwen3.5/Benchmarks) and can be used for demos, side-by-side tests, and video examples.
@@ -223,3 +276,11 @@ uv run python -m unittest discover -s tests -v
 uv run ruff check .
 uv run mypy visual_experimentation_app
 ```
+
+## References
+
+- https://docs.vllm.ai/en/stable/features/multimodal_inputs/
+- https://docs.vllm.ai/en/latest/serving/openai_compatible_server/
+- https://github.com/vllm-project/vllm/blob/main/docs/configuration/optimization.md
+- https://blog.overshoot.ai/blog/qwen3.5-on-overshoot
+- https://build.nvidia.com/nvidia/video-search-and-summarization
