@@ -1,0 +1,68 @@
+name: gemma4_31b_fp8
+
+services:
+  vllm:
+    image: vllm/vllm-openai:gemma4
+    container_name: vllm_gemma4_31b_fp8
+    ipc: host
+    shm_size: "16gb"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    gpus: all
+    ports:
+      - "127.0.0.1:8001:8000"
+    env_file:
+      - ../.env
+    environment:
+      HF_HOME: /data/hf
+      HF_HUB_CACHE: /data/hf/hub
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ${HOME}/.cache/huggingface:/data/hf
+      - /dev/null:/etc/ld.so.conf.d/00-cuda-compat.conf
+    command:
+      # Hugging Face model id to serve.
+      - RedHatAI/gemma-4-31B-it-FP8-block
+      # Bind to all container interfaces; Docker limits host exposure via the ports map.
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # Total sequence budget shared by prompt tokens, media tokens, and output.
+      - --max-model-len
+      - "10000"
+      # Fraction of GPU memory vLLM may reserve for this server.
+      - --gpu-memory-utilization
+      - "0.45"
+      # Keep concurrency conservative so Qwen and Gemma can coexist on one GPU.
+      - --max-num-seqs
+      - "1"
+      - --mm-encoder-tp-mode
+      - data
+      # Keep multimodal processor cache in shared memory for faster repeated requests.
+      - --mm-processor-cache-type
+      - shm
+      # Enable Qwen3 reasoning extraction and per-request thinking controls.
+      # Enable Gemma 4 reasoning extraction for the app's thinking toggle.
+      # vLLM docs do not currently document `thinking_token_budget` support for Gemma 4.
+      - --reasoning-parser
+      - gemma4
+      # Let the server emit structured tool calls when requested.
+      - --tool-call-parser
+      - gemma4
+      - --enable-auto-tool-choice
+      # Use Gemma 4's tool-aware chat template.
+      - --chat-template
+      - examples/tool_chat_template_gemma4.jinja
+      # Allow asynchronous scheduling for smoother single-request throughput.
+      - --async-scheduling
+      # Cap each request at one image and one video for predictable memory use.
+      - --limit-mm-per-prompt
+      - '{"image":1,"video":1}'
+      # Default Gemma visual detail budget; the app can override this per request.
+      - --mm-processor-kwargs
+      - '{"max_soft_tokens":280}'
