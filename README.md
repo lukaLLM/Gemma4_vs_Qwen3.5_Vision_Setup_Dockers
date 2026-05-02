@@ -13,7 +13,8 @@ LOCAL AI / VLM SETUP SERIES:
 - 2️⃣ Speed Tune Your Vision AI (30s → 2s): https://www.youtube.com/watch?v=ZtGOZvkuTcw
 - 3️⃣ Process 2-Hour Videos FAST: https://www.youtube.com/watch?v=BxDfOPcak5k
 - 4️⃣ The Ultimate Local AI Coding Workflow: https://www.youtube.com/watch?v=11rA29YacB8 
-- 5️⃣🆕 Gemma 4 vs Qwen 3.5 Vision AI: One Model Wasn't Even Close!: https://www.youtube.com/watch?v=lqjuztEiyD0
+- 5️⃣ Gemma 4 vs Qwen 3.5 Vision AI: One Model Wasn't Even Close!: https://www.youtube.com/watch?v=lqjuztEiyD0
+- 6️⃣🆕  Qwen 3.6 VS Gemma 4 Vision. DO WE HAVE NEW NEW LOCAL CHAMP? [Local AI Benchmarking]. https://www.youtube.com/watch?v=ueszpo1ms6Q 
 
 The benchmark results from episode 5 are included in this repo as an interactive HTML report: [Benchmark_Report.html](Benchmark_Report.html)
 
