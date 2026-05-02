@@ -15,6 +15,10 @@ LOCAL AI / VLM SETUP SERIES:
 - 4️⃣ The Ultimate Local AI Coding Workflow: https://www.youtube.com/watch?v=11rA29YacB8 
 - 5️⃣🆕 Gemma 4 vs Qwen 3.5 Vision AI: One Model Wasn't Even Close!: https://www.youtube.com/watch?v=lqjuztEiyD0
 
+The benchmark results from episode 5 are included in this repo as an interactive HTML report: [Benchmark_Report.html](Benchmark_Report.html)
+
+It covers 23 tasks (Qwen 3.6 27B vs Gemma 4 31B) across vision, geo, OCR, video, detection, and misc categories with per-task findings and timing notes.
+
 
 Previous base repo:
 

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qwen 3.6 27B vs Gemma 4 31B — Benchmark Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --blue-50: #E6F1FB; --blue-200: #85B7EB; --blue-400: #378ADD;
+    --blue-600: #185FA5; --blue-800: #0C447C; --blue-900: #042C53;
+    --coral-50: #FAECE7; --coral-200: #F0997B; --coral-400: #D85A30;
+    --coral-600: #993C1D; --coral-800: #712B13; --coral-900: #4A1B0C;
+    --gray-50: #F1EFE8; --gray-100: #D3D1C7; --gray-400: #888780;
+    --gray-600: #5F5E5A; --gray-800: #444441; --gray-900: #2C2C2A;
+    --teal-50: #E1F5EE; --teal-800: #085041;
+    --purple-50: #EEEDFE; --purple-800: #3C3489;
+    --pink-50: #FBEAF0; --pink-800: #72243E;
+    --amber-50: #FAEEDA; --amber-800: #633806;
+    --green-50: #EAF3DE; --green-800: #27500A;
+    --bg: #F5F4F0;
+    --surface: #FFFFFF;
+    --text: #1A1A18;
+    --text-muted: #6B6A64;
+    --border: rgba(0,0,0,0.08);
+    --border-strong: rgba(0,0,0,0.14);
+    --radius: 14px;
+    --radius-sm: 8px;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 40px 24px 80px;
+  }
+
+  .page { max-width: 900px; margin: 0 auto; }
+
+  /* ── Header ── */
+  .page-header { margin-bottom: 40px; }
+  .page-eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .page-title {
+    font-size: clamp(24px, 4vw, 36px);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -.02em;
+    color: var(--text);
+  }
+  .page-title span { color: var(--gray-400); }
+  .page-meta {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .meta-tag {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+  }
+
+  /* ── Score hero ── */
+  .score-hero {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+
+  .hero-side {
+    padding: 36px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+  }
+  .hero-side.blue { border-right: 1px solid var(--border); }
+  .hero-side.coral { border-left: 1px solid var(--border); text-align: right; }
+
+  .hero-side::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 4px;
+  }
+  .hero-side.blue::after { background: var(--blue-400); }
+  .hero-side.coral::after { background: var(--coral-400); }
+
+  .hero-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .hero-model { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+  .hero-sub { font-size: 12px; color: var(--text-muted); }
+  .hero-score {
+    font-size: 72px;
+    font-weight: 300;
+    letter-spacing: -.04em;
+    line-height: 1;
+    margin-top: 8px;
+  }
+  .hero-score-label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .blue .hero-score { color: var(--blue-600); }
+  .coral .hero-score { color: var(--coral-600); }
+
+  .hero-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 28px;
+    gap: 12px;
+    min-width: 120px;
+  }
+  .vs-circle {
+    width: 56px; height: 56px;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .tie-block { text-align: center; }
+  .tie-num { font-size: 28px; font-weight: 300; color: var(--gray-600); letter-spacing: -.02em; }
+  .tie-label { font-size: 11px; color: var(--text-muted); font-family: 'DM Mono', monospace; letter-spacing: .05em; text-transform: uppercase; }
+
+  /* ── Progress bar ── */
+  .prog-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px 20px; margin-bottom: 28px; }
+  .prog-bar { height: 8px; border-radius: 4px; overflow: hidden; display: flex; gap: 3px; margin-bottom: 10px; }
+  .pb-b { background: var(--blue-400); border-radius: 4px 0 0 4px; transition: width .5s ease; }
+  .pb-g { background: var(--gray-100); }
+  .pb-c { background: var(--coral-400); border-radius: 0 4px 4px 0; }
+  .prog-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .pl-b { color: var(--blue-600); font-weight: 500; }
+  .pl-c { color: var(--coral-600); font-weight: 500; }
+
+  /* ── Stat cards ── */
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 32px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px 18px; }
+  .stat-num { font-size: 32px; font-weight: 300; letter-spacing: -.03em; line-height: 1; }
+  .stat-of { font-size: 13px; color: var(--text-muted); }
+  .stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .07em; }
+  .stat-card.s-blue .stat-num { color: var(--blue-600); }
+  .stat-card.s-coral .stat-num { color: var(--coral-600); }
+  .stat-card.s-gray .stat-num { color: var(--gray-600); }
+
+  /* ── Filters ── */
+  .section-head { font-size: 11px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px; font-family: 'DM Mono', monospace; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .fb {
+    font-size: 12px; font-weight: 500; padding: 5px 13px;
+    border-radius: 20px; border: 1px solid var(--border-strong);
+    background: transparent; color: var(--text-muted);
+    cursor: pointer; transition: all .15s; font-family: 'DM Sans', sans-serif;
+  }
+  .fb:hover { background: var(--blue-50); border-color: var(--blue-200); color: var(--blue-800); }
+  .fb.on { background: var(--blue-50); border-color: var(--blue-200); color: var(--blue-800); }
+
+  /* ── Table ── */
+  .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  thead { background: var(--bg); }
+  th { font-size: 10px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 11px 16px; text-align: left; border-bottom: 1px solid var(--border); font-family: 'DM Mono', monospace; }
+  td { padding: 13px 16px; vertical-align: top; border-bottom: 1px solid var(--border); font-size: 13.5px; line-height: 1.55; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #FAFAF8; }
+
+  tbody tr td:first-child { padding-left: 14px; border-left: 3px solid transparent; }
+  tbody tr.rb td:first-child { border-left-color: var(--blue-400); }
+  tbody tr.rc td:first-child { border-left-color: var(--coral-400); }
+  tbody tr.rg td:first-child { border-left-color: var(--gray-100); }
+
+  .tn { font-weight: 500; font-size: 13.5px; }
+  .ts { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  .pill { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 10px; letter-spacing: .03em; white-space: nowrap; font-family: 'DM Mono', monospace; }
+  .pv { background: var(--purple-50); color: var(--purple-800); }
+  .po { background: var(--amber-50); color: var(--amber-800); }
+  .pg { background: var(--teal-50); color: var(--teal-800); }
+  .pd { background: var(--pink-50); color: var(--pink-800); }
+  .pvd { background: var(--green-50); color: var(--green-800); }
+  .pm { background: var(--gray-50); color: var(--gray-800); }
+
+  .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; padding: 3px 9px; border-radius: 20px; white-space: nowrap; }
+  .ch-b { background: var(--blue-50); color: var(--blue-800); border: 1px solid var(--blue-200); }
+  .ch-c { background: var(--coral-50); color: var(--coral-800); border: 1px solid var(--coral-200); }
+  .ch-g { background: var(--gray-50); color: var(--gray-600); border: 1px solid var(--gray-100); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .db { background: var(--blue-400); } .dc { background: var(--coral-400); } .dg { background: var(--gray-400); }
+
+  .fn { color: var(--text); }
+  .fs { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; font-style: italic; }
+
+  .new-badge { font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--teal-50); color: var(--teal-800); vertical-align: middle; margin-left: 6px; letter-spacing: .04em; text-transform: uppercase; font-family: 'DM Mono', monospace; }
+
+  .footer { margin-top: 32px; text-align: center; font-size: 11px; color: var(--text-muted); font-family: 'DM Mono', monospace; }
+
+  @media (max-width: 600px) {
+    .score-hero { grid-template-columns: 1fr; }
+    .hero-center { flex-direction: row; padding: 16px 20px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .hero-side.blue { border-right: none; }
+    .hero-side.coral { border-left: none; text-align: left; }
+    .stats-row { grid-template-columns: 1fr; }
+    .hero-score { font-size: 52px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="page-header">
+    <div class="page-eyebrow">Multimodal vision benchmark</div>
+    <h1 class="page-title">Qwen 3.6 27B <span>vs</span> Gemma 4 31B</h1>
+    <div class="page-meta">
+      <span class="meta-tag">FP8 · dense models only</span>
+      <span class="meta-tag">vLLM inference</span>
+      <span class="meta-tag">23 tasks</span>
+      <span class="meta-tag">local deployment</span>
+    </div>
+  </header>
+
+  <div class="score-hero">
+    <div class="hero-side blue">
+      <div class="hero-label">Winner</div>
+      <div class="hero-model">Gemma 4 31B</div>
+      <div class="hero-sub">Google DeepMind</div>
+      <div class="hero-score">13</div>
+      <div class="hero-score-label">tasks won</div>
+    </div>
+
+    <div class="hero-center">
+      <div class="vs-circle">VS</div>
+      <div class="tie-block">
+        <div class="tie-num">5</div>
+        <div class="tie-label">Ties</div>
+      </div>
+    </div>
+
+    <div class="hero-side coral">
+      <div class="hero-label">Challenger</div>
+      <div class="hero-model">Qwen 3.6 27B</div>
+      <div class="hero-sub">Alibaba</div>
+      <div class="hero-score">5</div>
+      <div class="hero-score-label">tasks won</div>
+    </div>
+  </div>
+
+  <div class="prog-wrap">
+    <div class="prog-bar">
+      <div class="pb-b" style="width:57%"></div>
+      <div class="pb-g" style="width:22%"></div>
+      <div class="pb-c" style="width:21%"></div>
+    </div>
+    <div class="prog-labels">
+      <span class="pl-b">Gemma 4 &nbsp;·&nbsp; 57%</span>
+      <span>5 ties &nbsp;·&nbsp; 22%</span>
+      <span class="pl-c">22% &nbsp;·&nbsp; Qwen 3.6</span>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card s-blue">
+      <div class="stat-num">13 <span class="stat-of" style="font-size:18px">/ 23</span></div>
+      <div class="stat-label">Gemma 4 wins</div>
+    </div>
+    <div class="stat-card s-coral">
+      <div class="stat-num">5 <span class="stat-of" style="font-size:18px">/ 23</span></div>
+      <div class="stat-label">Qwen 3.6 wins</div>
+    </div>
+    <div class="stat-card s-gray">
+      <div class="stat-num">5 <span class="stat-of" style="font-size:18px">/ 23</span></div>
+      <div class="stat-label">Tied tasks</div>
+    </div>
+  </div>
+
+  <div class="section-head">Task breakdown</div>
+
+  <div class="filters">
+    <button class="fb on" onclick="filter('all',this)">All tasks</button>
+    <button class="fb" onclick="filter('vision',this)">Vision</button>
+    <button class="fb" onclick="filter('geo',this)">Geo</button>
+    <button class="fb" onclick="filter('ocr',this)">OCR</button>
+    <button class="fb" onclick="filter('video',this)">Video</button>
+    <button class="fb" onclick="filter('detect',this)">Detection</button>
+    <button class="fb" onclick="filter('misc',this)">Misc</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:26%">Task</th>
+          <th style="width:11%">Category</th>
+          <th style="width:14%">Winner</th>
+          <th>Finding</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="footer">Local AI benchmark · FP8 quants via vLLM · dense models only</div>
+
+</div>
+
+<script>
+const rows=[
+  {task:"UI parameter explanation",sub:"",cat:"vision",cl:"Vision",w:"qwen",f:"Qwen gave warmer, more human-friendly descriptions (e.g. 'brain power' for thinking budget). Gemma was correct but robotic.",p:"Qwen ~2× more tokens; similar total time",isnew:false},
+  {task:"Meme recognition (Western)",sub:"",cat:"vision",cl:"Vision",w:"gemma",f:"Gemma more consistently identified meme name and origin date. Qwen sometimes correct but regularly got the year wrong.",p:"Gemma ~2× faster due to fewer thinking tokens",isnew:false},
+  {task:"Meme recognition (Asian)",sub:"",cat:"vision",cl:"Vision",w:"tie",f:"Both correctly identified the Chinese meme template and cultural context. Comparable quality across runs.",p:"",isnew:false},
+  {task:"Obscure meme (fist)",sub:"",cat:"vision",cl:"Vision",w:"gemma",f:"Neither was correct, but Gemma produced output within budget. Qwen exhausted all tokens with no usable response.",p:"Qwen ~6× slower, still failed to output anything",isnew:false},
+  {task:"Handwriting OCR (to-do list)",sub:"Mixed-language notes",cat:"ocr",cl:"OCR",w:"gemma",f:"Gemma transcribed the mixed-language handwritten note correctly. Qwen entered overthink mode and returned wrong text.",p:"Qwen 3× more tokens, incorrect result",isnew:false},
+  {task:"Handwriting OCR (shopping list)",sub:"",cat:"ocr",cl:"OCR",w:"tie",f:"Inconsistent across runs for both models. Both made errors; neither reliably extracted all items.",p:"Results varied on identical re-runs",isnew:false},
+  {task:"Food recognition",sub:"Serrano ham sandwich",cat:"vision",cl:"Vision",w:"gemma",f:"Both identified the food correctly. Qwen over-inferred a Spanish location from cup text — an overconfident assumption.",p:"Gemma ~2× faster, more concise",isnew:false},
+  {task:"Obscure location ID",sub:"Poland monument",cat:"geo",cl:"Geo",w:"gemma",f:"Gemma correctly identified the Polish location. Qwen guessed Italy.",p:"",isnew:false},
+  {task:"GeoGuessr (Mongolia)",sub:"With thinking",cat:"geo",cl:"Geo",w:"gemma",f:"Gemma gave 70% Mongolia / 20% Kazakhstan — correct. Qwen overran its thinking budget and produced no output.",p:"Thinking budget must be tuned per input size for Qwen",isnew:false},
+  {task:"GeoGuessr (Malaysia)",sub:"Without thinking",cat:"geo",cl:"Geo",w:"qwen",f:"Without thinking, Qwen landed ~20 km from the target. Gemma was further off. Qwen performs better geo-wise with thinking off.",p:"Only ~4 s difference in total time",isnew:false},
+  {task:"GeoGuessr (Philippines)",sub:"Without thinking",cat:"geo",cl:"Geo",w:"tie",f:"Both correctly identified the Philippines. Gemma 71 km off, Qwen 68 km off — effectively equal accuracy.",p:"",isnew:false},
+  {task:"Object detection (bounding box)",sub:"Cat in drawer",cat:"detect",cl:"Detection",w:"gemma",f:"Gemma returned correct normalised coordinates consistently. Qwen frequently output wrong scale or format without thinking.",p:"Gemma ~3 s; much faster",isnew:false},
+  {task:"Segmentation mask (polygon)",sub:"Cat outline & coins",cat:"detect",cl:"Detection",w:"gemma",f:"Gemma was clearly better on coins — correctly outlined most coin edges with accurate masks. Qwen produced overlapping or incorrectly positioned bounding boxes. On the cat outline both were comparable but Gemma still edged it.",p:"Gemma faster and more accurate on both subjects",isnew:false},
+  {task:"Coin counting",sub:"Mixed EUR + PLN",cat:"vision",cl:"Vision",w:"gemma",f:"Gemma more accurately identified denominations and computed per-currency totals. Qwen miscounted repeatedly.",p:"",isnew:false},
+  {task:"Deadlift reps & weight",sub:"Video analysis",cat:"video",cl:"Video",w:"qwen",f:"Qwen correctly counted reps and broke down plate weights with a tuned thinking budget. Gemma consistently missed one rep.",p:"Qwen 3× slower but meaningfully better output",isnew:false},
+  {task:"Sports player number ID",sub:"Dynamic scene, 2 FPS",cat:"video",cl:"Video",w:"tie",f:"Both failed. Likely impacted by 2 FPS pre-processing limiting frame resolution.",p:"",isnew:false},
+  {task:"Finger counting",sub:"Video",cat:"video",cl:"Video",w:"qwen",f:"Qwen correctly identified the 5-finger sequence with thinking. Gemma misclassified the '3-visible-fingers' frame as the final count.",p:"Qwen 5× slower due to thinking tokens",isnew:false},
+  {task:"AI-generated video detection",sub:"",cat:"video",cl:"Video",w:"tie",f:"Results inconsistent across all runs. Only obvious artifacts (color shift, teleportation) detected reliably.",p:"Not reliable for subtle AI-gen detection",isnew:false},
+  {task:"Animal recognition",sub:"",cat:"vision",cl:"Vision",w:"gemma",f:"Gemma correctly identified common animals; Qwen made errors. Both inconsistent for rare species.",p:"",isnew:false},
+  {task:"Throttle word game",sub:"",cat:"misc",cl:"Misc",w:"gemma",f:"Gemma solved the game (Sweden). Qwen suggested Germany — a guess already ruled out.",p:"Gemma avoided re-guessing via concise reasoning",isnew:false},
+  {task:"Graph analysis",sub:"Geometry + data chart",cat:"vision",cl:"Vision",w:"gemma",f:"Both confused coordinate points with line markers. Without thinking, Qwen computed area incorrectly (15 vs 10.5) and mislabelled position. Qwen risks token exhaustion on complex graphs.",p:"Slight win for Gemma; Qwen can crash on complex graphs",isnew:true},
+  {task:"Low-quality scatter plot",sub:"MinMax-1.2 PPL vs disk space",cat:"vision",cl:"Vision",w:"gemma",f:"Gemma correctly extracted legend names (Bartowski, AeeSedai). Qwen hallucinated a name and made unsupported claims even with thinking on.",p:"Gemma wins clearly — likely aided by higher image token parameter",isnew:true},
+  {task:"Real-world OCR (price tag)",sub:"Matcha latte shelf photo",cat:"ocr",cl:"OCR",w:"tie",f:"Both correctly extracted price (€5.00), currency, and brand name (Kirin) without thinking. Fast and accurate for both.",p:"Gemma slightly faster on final output",isnew:true},
+];
+
+const pmap={vision:'pv',ocr:'po',geo:'pg',detect:'pd',video:'pvd',misc:'pm'};
+const wl={gemma:'Gemma 4',qwen:'Qwen 3.6',tie:'Tie'};
+const wc={gemma:'ch-b',qwen:'ch-c',tie:'ch-g'};
+const wd={gemma:'db',qwen:'dc',tie:'dg'};
+const rc={gemma:'rb',qwen:'rc',tie:'rg'};
+
+function render(data){
+  const tb=document.getElementById('tbody');
+  tb.innerHTML='';
+  data.forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.className=rc[r.w];
+    tr.dataset.cat=r.cat;
+    tr.innerHTML=`
+      <td><span class="tn">${r.task}${r.isnew?'<span class="new-badge">new</span>':''}</span>${r.sub?`<div class="ts">${r.sub}</div>`:''}</td>
+      <td><span class="pill ${pmap[r.cat]}">${r.cl}</span></td>
+      <td><span class="chip ${wc[r.w]}"><span class="dot ${wd[r.w]}"></span>${wl[r.w]}</span></td>
+      <td><span class="fn">${r.f}</span>${r.p?`<div class="fs">${r.p}</div>`:''}</td>
+    `;
+    tb.appendChild(tr);
+  });
+}
+
+function filter(cat,btn){
+  document.querySelectorAll('.fb').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  render(cat==='all'?rows:rows.filter(r=>r.cat===cat));
+}
+
+render(rows);
+</script>
+</body>
+</html>
