@@ -14,9 +14,11 @@ from visual_experimentation_app.ui_presets import (  # noqa: E402
     DEFAULT_TAG_CATEGORIES,
     PROMPT_MODE_CLASSIFIER,
     PROMPT_MODE_CUSTOM,
+    PROMPT_MODE_GEOGUESSR,
     PROMPT_MODE_OBJECT_DETECTION,
     PROMPT_MODE_SEARCH_INDEXING,
     PROMPT_MODE_TAGGING,
+    PROMPT_MODE_TRADLE,
     PROMPT_MODE_VISIBLE_CHUNK_SUMMARY,
     SEGMENTATION_PROFILE_BALANCED,
     SEGMENTATION_PROFILE_FINE_GRAINED,
@@ -80,8 +82,34 @@ class UiPresetsTest(unittest.TestCase):
         )
         self.assertIn("Locate the requested object(s) in the image", prompt)
         self.assertIn('"detections"', prompt)
-        self.assertIn('"bbox_norm"', prompt)
+        self.assertIn('"box_2d"', prompt)
+        self.assertIn("0\u20131000", prompt)
         self.assertIn("Requested: {query}", prompt)
+
+    def test_build_prompt_for_geoguessr_enforces_evidence_based_pin_guess(self) -> None:
+        """GeoGuessr preset should preserve the structured location-guess workflow."""
+        prompt = build_prompt_for_mode(
+            mode=PROMPT_MODE_GEOGUESSR,
+            current_prompt="ignored",
+            tag_categories_csv="",
+        )
+        self.assertIn("You are playing GeoGuessr from a single image", prompt)
+        self.assertIn("Do not hallucinate readable text", prompt)
+        self.assertIn("Final pin coordinates", prompt)
+        self.assertIn("Confidence score", prompt)
+        self.assertIn("Google Map coordinates", prompt)
+
+    def test_build_prompt_for_tradle_returns_expected_json_schema(self) -> None:
+        """Tradle preset should keep the export-treemap JSON output contract."""
+        prompt = build_prompt_for_mode(
+            mode=PROMPT_MODE_TRADLE,
+            current_prompt="ignored",
+            tag_categories_csv="",
+        )
+        self.assertIn("You are an expert Tradle solver", prompt)
+        self.assertIn('"visible_exports"', prompt)
+        self.assertIn('"best_guess"', prompt)
+        self.assertIn('"next_guess_if_wrong"', prompt)
 
     def test_build_prompt_for_tagging_injects_categories(self) -> None:
         """Tagging preset should inject allowed categories into prompt."""

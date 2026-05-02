@@ -244,6 +244,7 @@ class CompareExecutionTest(unittest.TestCase):
                 model="qwen-default",
                 api_key="EMPTY",
                 request_defaults=TargetRequestDefaults(
+                    top_k_placeholder=20,
                     use_model_defaults=False,
                     max_tokens=10000,
                     max_completion_tokens=9500,
@@ -263,6 +264,7 @@ class CompareExecutionTest(unittest.TestCase):
                 model="gemma-default",
                 api_key="EMPTY",
                 request_defaults=TargetRequestDefaults(
+                    top_k_placeholder=64,
                     use_model_defaults=True,
                     max_tokens=10000,
                     max_completion_tokens=9500,
@@ -346,6 +348,145 @@ class CompareExecutionTest(unittest.TestCase):
         )
         self.assertFalse(result.model_a_result.effective_params["text_only"])
         self.assertFalse(result.model_b_result.effective_params["text_only"])
+
+    def test_execute_compare_omits_ui_placeholders_when_env_default_is_unset(self) -> None:
+        """Untouched UI placeholder values should not force generation params into vLLM."""
+        request = CompareRequest(
+            prompt="Describe the image.",
+            image_paths=["/tmp/example.png"],
+            model_a=CompareTargetConfig(
+                label="Qwen",
+                model="model-a",
+                max_tokens=10000,
+                max_completion_tokens=9500,
+                temperature=1.0,
+                top_p=0.95,
+                top_k=20,
+                presence_penalty=1.5,
+                frequency_penalty=0.0,
+            ),
+            model_b=CompareTargetConfig(
+                label="Gemma",
+                model="model-b",
+                max_tokens=10000,
+                max_completion_tokens=9500,
+                temperature=1.0,
+                top_p=0.95,
+                top_k=64,
+                presence_penalty=1.5,
+                frequency_penalty=0.0,
+            ),
+        )
+        fake_settings = LabSettings(
+            host="127.0.0.1",
+            port=7870,
+            ui_path="/",
+            api_prefix="/api",
+            results_dir=Path("/tmp/mm-results"),
+            default_timeout_seconds=180.0,
+            default_target_height=480,
+            default_video_fps=1.0,
+            default_safe_video_sampling=False,
+            model_a=TargetDefaults(
+                label="Qwen Default",
+                base_url="http://127.0.0.1:8000/v1",
+                model="qwen-default",
+                api_key="EMPTY",
+                request_defaults=TargetRequestDefaults(
+                    top_k_placeholder=20,
+                    use_model_defaults=False,
+                    max_tokens=None,
+                    max_completion_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                    top_k=None,
+                    presence_penalty=None,
+                    frequency_penalty=None,
+                    thinking_mode="off",
+                    show_reasoning=False,
+                    measure_ttft=True,
+                ),
+            ),
+            model_b=TargetDefaults(
+                label="Gemma Default",
+                base_url="http://127.0.0.1:8001/v1",
+                model="gemma-default",
+                api_key="EMPTY",
+                request_defaults=TargetRequestDefaults(
+                    top_k_placeholder=64,
+                    use_model_defaults=False,
+                    max_tokens=None,
+                    max_completion_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                    top_k=None,
+                    presence_penalty=None,
+                    frequency_penalty=None,
+                    thinking_mode="off",
+                    show_reasoning=False,
+                    measure_ttft=True,
+                ),
+            ),
+        )
+        fake_prepared = PreparedMedia(
+            image_paths=[Path("/tmp/example.png")],
+            video_paths=[],
+            cleanup_paths=[],
+            metadata={"images": [{"source_path": "/tmp/example.png"}], "videos": [], "video": None},
+        )
+        captured_targets: dict[str, CompareTargetConfig] = {}
+
+        def fake_invoke_completion(
+            *,
+            client: object,
+            target: CompareTargetConfig,
+            model: str,
+            messages: list[dict[str, object]],
+            extra_body: dict[str, object],
+        ) -> tuple[str, float | None, TokenUsage]:
+            captured_targets[target.label] = target
+            return (
+                f"output-{target.label}",
+                10.0,
+                TokenUsage(prompt_tokens=10, output_tokens=20, total_tokens=30),
+            )
+
+        with (
+            mock.patch(
+                "visual_experimentation_app.vllm_client.get_settings",
+                return_value=fake_settings,
+            ),
+            mock.patch(
+                "visual_experimentation_app.vllm_client.prepare_media",
+                return_value=fake_prepared,
+            ),
+            mock.patch(
+                "visual_experimentation_app.vllm_client.encode_file_to_data_url",
+                return_value="data://example.png",
+            ),
+            mock.patch(
+                "visual_experimentation_app.vllm_client._build_client",
+                return_value=object(),
+            ),
+            mock.patch(
+                "visual_experimentation_app.vllm_client._invoke_completion",
+                side_effect=fake_invoke_completion,
+            ),
+        ):
+            result = execute_compare(request)
+
+        self.assertEqual(result.status, "ok")
+        self.assertIsNone(captured_targets["Qwen"].max_tokens)
+        self.assertIsNone(captured_targets["Qwen"].temperature)
+        self.assertIsNone(captured_targets["Qwen"].top_k)
+        self.assertIsNone(captured_targets["Qwen"].presence_penalty)
+        self.assertIsNone(captured_targets["Gemma"].max_tokens)
+        self.assertIsNone(captured_targets["Gemma"].temperature)
+        self.assertIsNone(captured_targets["Gemma"].top_k)
+        self.assertIsNone(captured_targets["Gemma"].frequency_penalty)
+        self.assertIsNone(
+            result.model_b_result.effective_params["sent_generation_params"]["max_tokens"]
+        )
 
     def test_execute_compare_applies_thinking_token_budget_only_to_supported_models(self) -> None:
         """Thinking budget should reach Qwen-family targets but not unsupported models."""

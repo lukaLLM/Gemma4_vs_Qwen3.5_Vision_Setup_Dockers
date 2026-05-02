@@ -101,6 +101,30 @@ class CompareLabConfigTest(unittest.TestCase):
         self.assertEqual(settings.default_video_fps, 1.5)
         self.assertTrue(settings.default_safe_video_sampling)
 
+    def test_unset_generation_env_defaults_remain_unset(self) -> None:
+        """Missing generation env vars should stay None for vLLM fallback behavior."""
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    "MM_LAB_MODEL_A_LABEL": "Qwen A",
+                    "MM_LAB_MODEL_B_LABEL": "Gemma B",
+                },
+                clear=True,
+            ),
+            mock.patch("visual_experimentation_app.config._load_dotenv_defaults"),
+        ):
+            clear_settings_cache()
+            settings = get_settings()
+
+        self.assertIsNone(settings.model_a.request_defaults.max_tokens)
+        self.assertIsNone(settings.model_a.request_defaults.temperature)
+        self.assertIsNone(settings.model_a.request_defaults.top_k)
+        self.assertIsNone(settings.model_a.request_defaults.presence_penalty)
+        self.assertIsNone(settings.model_b.request_defaults.max_completion_tokens)
+        self.assertIsNone(settings.model_b.request_defaults.top_p)
+        self.assertIsNone(settings.model_b.request_defaults.frequency_penalty)
+
 
 if __name__ == "__main__":
     unittest.main()

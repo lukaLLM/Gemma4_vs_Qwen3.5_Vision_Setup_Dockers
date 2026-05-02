@@ -88,7 +88,7 @@ def create_app(*, include_ui: bool = True) -> FastAPI:
     if not include_ui:
         return app
 
-    from visual_experimentation_app.ui import build_ui_blocks, ui_css, ui_theme
+    from visual_experimentation_app.ui import build_ui_blocks, ui_css, ui_head, ui_theme
 
     blocks = build_ui_blocks()
     return cast(
@@ -99,5 +99,6 @@ def create_app(*, include_ui: bool = True) -> FastAPI:
             path=settings.ui_path,
             theme=ui_theme(),
             css=ui_css(),
+            head=ui_head(),
         ),
     )

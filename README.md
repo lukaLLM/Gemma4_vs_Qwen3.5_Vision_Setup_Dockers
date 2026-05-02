@@ -121,8 +121,8 @@ uv sync
 4. Download models:
 
 ```bash
-chmod +x download_qwen_models.sh
-./download_qwen_models.sh
+chmod +x download_models.sh
+./download_models.sh
 ```
 
 The script reads `HF_TOKEN` from `.env` automatically.
@@ -132,7 +132,7 @@ This repo currently defaults to the two FP8 models used by the included Docker s
 - `Qwen/Qwen3.5-27B-FP8`
 - `RedHatAI/gemma-4-31B-it-FP8-block`
 
-If you do not want some models, open `download_qwen_models.sh` and comment out entries in:
+If you do not want some models, open `download_models.sh` and comment out entries in:
 
 - `GGUF_MODELS=(...)`
 - `HF_MODELS=(...)`
@@ -186,7 +186,15 @@ Runtime settings are loaded from the repo-root `.env`. See [visual_experimentati
 
 Compose files live in [docker](/home/luke/Documents/Code/Gemma4_Qwen3.5/docker).
 
-Included defaults:
+Available profiles:
+
+| File | Model | Host port |
+|---|---|---|
+| `compose.qwen3.5-27b-fp8.yaml` | `Qwen/Qwen3.5-27B-FP8` | `8000` |
+| `compose.qwen3.6-27b-fp8.yaml` | `Qwen/Qwen3.6-27B-FP8` | `8000` |
+| `compose.gemma4-31b-fp8.yaml` | `RedHatAI/gemma-4-31B-it-FP8-block` | `8001` |
+
+Shared defaults:
 
 - Qwen profile binds host port `8000`
 - Gemma profile binds host port `8001`
@@ -218,9 +226,38 @@ Prompt presets:
 - `Understanding/Summarization`
 - `Visible Chunk Summary`
 - `Object Detection (Boxes)`
+- `Colored Masks`
+- `Segmentation Masks (Polygons)`
 - `Tagging`
 - `Classifier (Single Category)`
 - `Video Type (One Word)`
+- `Detailed Image Description`
+- `Handwritten Notes / OCR`
+- `Food Recognition`
+- `Location Identification`
+- `GeoGuessr`
+- `Price Extraction`
+- `Price Extraction (Strict)`
+- `Meme Recognition`
+- `Tradle`
+- `Table Extraction & Math`
+- `Action ID (Video)`
+- `Workout Tracking (Video)`
+- `Event ID (Video)`
+- `Fire Detection`
+- `Real vs AI Video`
+- `Complex Counting`
+- `Video Number Summing`
+- `Animal Identification`
+- `Animal ID (With Uncertainty)`
+- `Wildlife Dataset Description`
+- `Uncertainty Calibration`
+- `Uncertainty Calibration (Confidence)`
+- `Uncertainty Calibration (Strict JSON)`
+- `UI Understanding: Upload File`
+- `UI Understanding: New Spreadsheet`
+- `UI Understanding: Share Project`
+- `UI Understanding: Open File`
 
 Segmentation is supported when exactly one video is present in the request. The current UI preset profiles are:
 

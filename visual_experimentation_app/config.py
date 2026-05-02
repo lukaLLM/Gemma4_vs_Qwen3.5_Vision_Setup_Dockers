@@ -10,6 +10,15 @@ from typing import Literal
 
 ThinkingMode = Literal["auto", "on", "off"]
 
+DEFAULT_MAX_TOKENS = 10000
+DEFAULT_MAX_COMPLETION_TOKENS = 9500
+DEFAULT_TEMPERATURE = 1.0
+DEFAULT_TOP_P = 0.95
+DEFAULT_TOP_K_MODEL_A = 20
+DEFAULT_TOP_K_MODEL_B = 64
+DEFAULT_PRESENCE_PENALTY = 1.5
+DEFAULT_FREQUENCY_PENALTY = 0.0
+
 
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -50,6 +59,26 @@ def _env_thinking_mode(name: str, default: ThinkingMode) -> ThinkingMode:
     if normalized == "off":
         return "off"
     return default
+
+
+def _env_optional_int(name: str) -> int | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _env_optional_float(name: str) -> float | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def _normalize_base_url(value: str) -> str:
@@ -102,14 +131,15 @@ def _load_dotenv_defaults(dotenv_path: Path | None = None) -> None:
 class TargetRequestDefaults:
     """Environment-resolved request defaults for one compare target."""
 
+    top_k_placeholder: int
     use_model_defaults: bool
-    max_tokens: int
-    max_completion_tokens: int
-    temperature: float
-    top_p: float
-    top_k: int
-    presence_penalty: float
-    frequency_penalty: float
+    max_tokens: int | None
+    max_completion_tokens: int | None
+    temperature: float | None
+    top_p: float | None
+    top_k: int | None
+    presence_penalty: float | None
+    frequency_penalty: float | None
     thinking_mode: ThinkingMode
     show_reasoning: bool
     measure_ttft: bool
@@ -146,26 +176,39 @@ class LabSettings:
 def _build_target_request_defaults(
     *,
     prefix: str,
-    top_k_default: int,
 ) -> TargetRequestDefaults:
     """Return per-target request defaults from environment variables."""
+    max_tokens = _env_optional_int(f"{prefix}_DEFAULT_MAX_TOKENS")
+    max_completion_tokens = _env_optional_int(f"{prefix}_DEFAULT_MAX_COMPLETION_TOKENS")
+    temperature = _env_optional_float(f"{prefix}_DEFAULT_TEMPERATURE")
+    top_p = _env_optional_float(f"{prefix}_DEFAULT_TOP_P")
+    top_k = _env_optional_int(f"{prefix}_DEFAULT_TOP_K")
+    presence_penalty = _env_optional_float(f"{prefix}_DEFAULT_PRESENCE_PENALTY")
+    frequency_penalty = _env_optional_float(f"{prefix}_DEFAULT_FREQUENCY_PENALTY")
+
     return TargetRequestDefaults(
+        top_k_placeholder=(
+            DEFAULT_TOP_K_MODEL_A if prefix == "MM_LAB_MODEL_A" else DEFAULT_TOP_K_MODEL_B
+        ),
         use_model_defaults=_env_bool(f"{prefix}_DEFAULT_USE_MODEL_DEFAULTS", False),
-        max_tokens=max(1, _env_int(f"{prefix}_DEFAULT_MAX_TOKENS", 10000)),
-        max_completion_tokens=max(
-            1,
-            _env_int(f"{prefix}_DEFAULT_MAX_COMPLETION_TOKENS", 9500),
+        max_tokens=max(1, max_tokens) if max_tokens is not None else None,
+        max_completion_tokens=(
+            max(1, max_completion_tokens) if max_completion_tokens is not None else None
         ),
-        temperature=min(2.0, max(0.0, _env_float(f"{prefix}_DEFAULT_TEMPERATURE", 1.0))),
-        top_p=min(1.0, max(0.05, _env_float(f"{prefix}_DEFAULT_TOP_P", 0.95))),
-        top_k=max(1, _env_int(f"{prefix}_DEFAULT_TOP_K", top_k_default)),
-        presence_penalty=min(
-            2.0,
-            max(-2.0, _env_float(f"{prefix}_DEFAULT_PRESENCE_PENALTY", 1.5)),
+        temperature=(
+            min(2.0, max(0.0, temperature)) if temperature is not None else None
         ),
-        frequency_penalty=min(
-            2.0,
-            max(-2.0, _env_float(f"{prefix}_DEFAULT_FREQUENCY_PENALTY", 0.0)),
+        top_p=min(1.0, max(0.05, top_p)) if top_p is not None else None,
+        top_k=max(1, top_k) if top_k is not None else None,
+        presence_penalty=(
+            min(2.0, max(-2.0, presence_penalty))
+            if presence_penalty is not None
+            else None
+        ),
+        frequency_penalty=(
+            min(2.0, max(-2.0, frequency_penalty))
+            if frequency_penalty is not None
+            else None
         ),
         thinking_mode=_env_thinking_mode(f"{prefix}_DEFAULT_THINKING_MODE", "off"),
         show_reasoning=_env_bool(f"{prefix}_DEFAULT_SHOW_REASONING", False),
@@ -209,7 +252,6 @@ def get_settings() -> LabSettings:
             api_key=os.getenv("MM_LAB_MODEL_A_API_KEY", "EMPTY").strip() or "EMPTY",
             request_defaults=_build_target_request_defaults(
                 prefix="MM_LAB_MODEL_A",
-                top_k_default=20,
             ),
         ),
         model_b=TargetDefaults(
@@ -226,7 +268,6 @@ def get_settings() -> LabSettings:
             api_key=os.getenv("MM_LAB_MODEL_B_API_KEY", "EMPTY").strip() or "EMPTY",
             request_defaults=_build_target_request_defaults(
                 prefix="MM_LAB_MODEL_B",
-                top_k_default=64,
             ),
         ),
     )

@@ -15,6 +15,12 @@ from uuid import uuid4
 from openai import OpenAI
 
 from visual_experimentation_app.config import (
+    DEFAULT_FREQUENCY_PENALTY,
+    DEFAULT_MAX_COMPLETION_TOKENS,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_PRESENCE_PENALTY,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
     LabSettings,
     TargetDefaults,
     TargetRequestDefaults,
@@ -146,6 +152,13 @@ def _apply_target_request_defaults(
             payload[field_name] = None
     else:
         for field_name, default_value in generation_defaults.items():
+            if default_value is None and _matches_ui_placeholder(
+                field_name=field_name,
+                value=payload[field_name],
+                defaults=defaults,
+            ):
+                payload[field_name] = None
+                continue
             if (field_name not in explicit_fields) or (payload[field_name] is None):
                 payload[field_name] = default_value
 
@@ -154,6 +167,25 @@ def _apply_target_request_defaults(
             payload[field_name] = toggle_value
 
     return CompareTargetConfig.model_validate(payload)
+
+
+def _matches_ui_placeholder(
+    *,
+    field_name: str,
+    value: Any,
+    defaults: TargetRequestDefaults,
+) -> bool:
+    """Treat untouched UI placeholder values as omitted when no env default exists."""
+    placeholders = {
+        "max_tokens": DEFAULT_MAX_TOKENS,
+        "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+        "temperature": DEFAULT_TEMPERATURE,
+        "top_p": DEFAULT_TOP_P,
+        "top_k": defaults.top_k_placeholder,
+        "presence_penalty": DEFAULT_PRESENCE_PENALTY,
+        "frequency_penalty": DEFAULT_FREQUENCY_PENALTY,
+    }
+    return value == placeholders[field_name]
 
 
 _VIDEO_PROCESSOR_HINT = (

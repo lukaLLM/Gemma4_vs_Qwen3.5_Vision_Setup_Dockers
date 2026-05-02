@@ -1,9 +1,9 @@
-name: gemma4_31b_fp8
+name: qwen36_27b_fp8
 
 services:
   vllm:
-    image: vllm/vllm-openai:gemma4
-    container_name: vllm_gemma4_31b_fp8
+    image: vllm/vllm-openai:latest
+    container_name: vllm_qwen36_27b_fp8
     ipc: host
     shm_size: "16gb"
     ulimits:
@@ -14,7 +14,7 @@ services:
         hard: 1048576
     gpus: all
     ports:
-      - "127.0.0.1:8001:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - ../.env
     environment:
@@ -26,43 +26,43 @@ services:
       - /dev/null:/etc/ld.so.conf.d/00-cuda-compat.conf
     command:
       # Hugging Face model id to serve.
-      - RedHatAI/gemma-4-31B-it-FP8-block
+      - Qwen/Qwen3.6-27B-FP8
       # Bind to all container interfaces; Docker limits host exposure via the ports map.
       - --host
       - 0.0.0.0
       - --port
       - "8000"
-      # Total sequence budget shared by prompt tokens, media tokens, and output.
+      # Allow model-specific multimodal code shipped with the repo.
+      - --trust-remote-code
+      # Total sequence budget shared by prompt tokens, media tokens, reasoning, and output.
       - --max-model-len
       - "10000"
       # Fraction of GPU memory vLLM may reserve for this server.
       - --gpu-memory-utilization
-      - "0.45"
+      - "0.39"
       # Keep concurrency conservative so Qwen and Gemma can coexist on one GPU.
       - --max-num-seqs
       - "1"
+      # Use data sharding for the multimodal encoder path.
       - --mm-encoder-tp-mode
       - data
       # Keep multimodal processor cache in shared memory for faster repeated requests.
       - --mm-processor-cache-type
       - shm
-      # Enable Qwen3 reasoning extraction and per-request thinking controls.
-      # Enable Gemma 4 reasoning extraction for the app's thinking toggle.
-      # vLLM docs do not currently document `thinking_token_budget` support for Gemma 4.
+      # Enable Qwen3.6 reasoning extraction and per-request thinking controls.
       - --reasoning-parser
-      - gemma4
-      # Let the server emit structured tool calls when requested.
-      - --tool-call-parser
-      - gemma4
-      - --enable-auto-tool-choice
-      # Use Gemma 4's tool-aware chat template.
-      - --chat-template
-      - examples/tool_chat_template_gemma4.jinja
+      - qwen3
+      # Required boundary strings so vLLM can apply `thinking_token_budget` correctly.
+      - --reasoning-config
+      - '{"reasoning_start_str":"<think>","reasoning_end_str":"I have to give the solution based on the reasoning directly now.</think>"}'
       # Allow asynchronous scheduling for smoother single-request throughput.
       - --async-scheduling
+      # Reuse KV cache across similar prompts.
+      - --enable-prefix-caching
+      # Let the server emit tool calls when requested.
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
       # Cap each request at one image and one video for predictable memory use.
       - --limit-mm-per-prompt
       - '{"image":2,"video":1}'
-      # Default Gemma visual detail budget; the app can override this per request.
-      - --mm-processor-kwargs
-      - '{"max_soft_tokens":280}'

@@ -7,7 +7,23 @@ from typing import Any, Literal, cast
 import gradio as gr
 
 from visual_experimentation_app.compare_service import execute_and_persist_compare
-from visual_experimentation_app.config import TargetDefaults, get_settings
+from visual_experimentation_app.config import (
+    DEFAULT_FREQUENCY_PENALTY,
+    DEFAULT_MAX_COMPLETION_TOKENS,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_PRESENCE_PENALTY,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
+    TargetDefaults,
+    get_settings,
+)
+from visual_experimentation_app.detection_preview import (
+    draw_colored_masks_on_image,
+    draw_detections_on_image,
+    draw_segmentation_masks_on_image,
+    load_detection_payload_json,
+    load_segmentation_payload_json,
+)
 from visual_experimentation_app.payload_builder import parse_json_object
 from visual_experimentation_app.result_store import list_compare_history, load_compare_result
 from visual_experimentation_app.schemas import (
@@ -21,7 +37,10 @@ from visual_experimentation_app.ui_presets import (
     DEFAULT_TAG_CATEGORIES,
     PROMPT_MODE_CHOICES,
     PROMPT_MODE_CLASSIFIER,
+    PROMPT_MODE_COLORED_MASKS,
     PROMPT_MODE_CUSTOM,
+    PROMPT_MODE_OBJECT_DETECTION,
+    PROMPT_MODE_SEGMENTATION_MASKS,
     PROMPT_MODE_TAGGING,
     SEGMENTATION_PROFILE_CHOICES,
     SEGMENTATION_PROFILE_OFF,
@@ -242,6 +261,27 @@ CUSTOM_CSS = """
     max-height: none;
   }
 }
+
+.css-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.95);
+  cursor: zoom-out;
+}
+
+.css-fullscreen-overlay img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
+}
+
+}
 """
 
 GEMMA_MAX_SOFT_TOKEN_CHOICES: list[tuple[str, str]] = [
@@ -255,6 +295,78 @@ GEMMA_MAX_SOFT_TOKEN_CHOICES: list[tuple[str, str]] = [
 GEMMA_MAX_SOFT_TOKEN_ALLOWED = {70, 140, 280, 560, 1120}
 
 
+CUSTOM_HEAD_JS = """
+<script>
+(function() {
+  "use strict";
+
+  function closeOverlay() {
+    var el = document.querySelector(".css-fullscreen-overlay");
+    if (el) el.remove();
+  }
+
+  function openOverlay(imgSrc) {
+    closeOverlay();
+    var overlay = document.createElement("div");
+    overlay.className = "css-fullscreen-overlay";
+    overlay.addEventListener("click", function(e) {
+      if (e.target === overlay) closeOverlay();
+    });
+    var img = document.createElement("img");
+    img.src = imgSrc;
+    img.alt = "Detection overlay fullscreen";
+    img.addEventListener("click", function(e) { e.stopPropagation(); });
+    overlay.appendChild(img);
+    document.body.appendChild(overlay);
+  }
+
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") closeOverlay();
+  });
+
+  function findImageSrc(btn) {
+    var container = btn.closest(".image-container, [data-testid='image']");
+    if (!container) container = btn.closest(".svelte-component, .gradio-image");
+    if (!container) container = btn.parentElement && btn.parentElement.parentElement;
+    if (!container) return null;
+    var img = container.querySelector("img[src]");
+    return img ? img.src : null;
+  }
+
+  function interceptFullscreenButtons(root) {
+    var buttons = (root || document).querySelectorAll(
+      'button[aria-label="Fullscreen"], button[title="Fullscreen"]'
+    );
+    buttons.forEach(function(btn) {
+      if (btn.dataset.fsPatched) return;
+      btn.dataset.fsPatched = "1";
+      btn.addEventListener("click", function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        var src = findImageSrc(btn);
+        if (src) openOverlay(src);
+      }, true);
+    });
+  }
+
+  var observer = new MutationObserver(function() {
+    interceptFullscreenButtons();
+  });
+
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener("DOMContentLoaded", function() {
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
+
+  interceptFullscreenButtons();
+})();
+</script>
+"""
+
+
 def ui_theme() -> object:
     """Return the Gradio theme used by the compare lab."""
     return APP_THEME
@@ -263,6 +375,11 @@ def ui_theme() -> object:
 def ui_css() -> str:
     """Return custom CSS for the compare lab Gradio app."""
     return CUSTOM_CSS
+
+
+def ui_head() -> str:
+    """Return custom HTML to inject into the page head."""
+    return CUSTOM_HEAD_JS
 
 
 def _extract_paths(upload_value: Any) -> list[str]:
@@ -340,28 +457,12 @@ def _parse_thinking_token_budget(raw_value: Any) -> int | None:
     return value
 
 
-def _apply_prompt_mode(mode: str, current_prompt: str, tag_categories_csv: str) -> str:
+def _apply_prompt_mode(mode: str, current_prompt: str) -> str:
     """Return prompt text based on the selected UI preset mode."""
     return build_prompt_for_mode(
         mode=_clean_text(mode).strip(),
         current_prompt=_clean_text(current_prompt),
-        tag_categories_csv=_clean_text(tag_categories_csv),
-    )
-
-
-def _refresh_prompt_for_tagging(
-    mode: str,
-    current_prompt: str,
-    tag_categories_csv: str,
-) -> str:
-    """Refresh prompt when category-driven preset modes are active."""
-    clean_mode = _clean_text(mode).strip()
-    if clean_mode not in {PROMPT_MODE_TAGGING, PROMPT_MODE_CLASSIFIER}:
-        return _clean_text(current_prompt)
-    return build_prompt_for_mode(
-        mode=clean_mode,
-        current_prompt=_clean_text(current_prompt),
-        tag_categories_csv=_clean_text(tag_categories_csv),
+        tag_categories_csv=DEFAULT_TAG_CATEGORIES,
     )
 
 
@@ -432,8 +533,21 @@ def _build_target_config(
         thinking_token_budget=_parse_thinking_token_budget(thinking_token_budget),
         gemma_max_soft_tokens=_parse_gemma_max_soft_tokens(gemma_max_soft_tokens),
         request_extra_body=extra_body,
-        request_extra_headers={str(key): str(value) for key, value in extra_headers.items()},
+    request_extra_headers={str(key): str(value) for key, value in extra_headers.items()},
     )
+
+
+def _display_default_request_value(
+    configured_value: int | float | None,
+    fallback_value: int | float,
+) -> int | float:
+    """Return the UI placeholder value for an unset request default."""
+    return fallback_value if configured_value is None else configured_value
+
+
+def _request_default_is_configured(value: int | float | None) -> bool:
+    """Return whether a generation control has an env-backed default."""
+    return value is not None
 
 
 def _build_compare_request(
@@ -469,9 +583,7 @@ def _build_compare_request(
         target_height=int(target_height),
         target_video_fps=float(target_video_fps),
         safe_video_sampling=bool(safe_video_sampling),
-        video_sampling_fps=(
-            None if bool(safe_video_sampling) else float(video_sampling_fps)
-        ),
+        video_sampling_fps=(None if bool(safe_video_sampling) else float(video_sampling_fps)),
         segment_max_duration_s=float(segment_max_duration_s),
         segment_overlap_s=float(segment_overlap_s),
         segment_workers=int(segment_workers),
@@ -545,18 +657,12 @@ def _build_effective_request_markdown(result: CompareTargetResult) -> str:
     defaults_md = ""
     if effective.get("use_model_defaults"):
         info_source = (
-            defaults_info.get("source", "unknown")
-            if isinstance(defaults_info, dict)
-            else "unknown"
+            defaults_info.get("source", "unknown") if isinstance(defaults_info, dict) else "unknown"
         )
         info_path = defaults_info.get("path", "") if isinstance(defaults_info, dict) else ""
-        info_message = (
-            defaults_info.get("message", "") if isinstance(defaults_info, dict) else ""
-        )
+        info_message = defaults_info.get("message", "") if isinstance(defaults_info, dict) else ""
         sampling_values = (
-            defaults_info.get("sampling_values", {})
-            if isinstance(defaults_info, dict)
-            else {}
+            defaults_info.get("sampling_values", {}) if isinstance(defaults_info, dict) else {}
         )
         if isinstance(sampling_values, dict) and sampling_values:
             sampling_lines = "\n".join(
@@ -607,7 +713,78 @@ def _build_effective_request_markdown(result: CompareTargetResult) -> str:
     )
 
 
+def _extract_json_object(text: str) -> str | None:
+    """Extract the first top-level JSON object from text that may include markdown fences."""
+    cleaned = text.strip()
+    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    if cleaned.startswith("```"):
+        first_newline = cleaned.find("\n")
+        if first_newline != -1:
+            cleaned = cleaned[first_newline + 1 :]
+        closing = cleaned.rfind("```")
+        if closing != -1:
+            cleaned = cleaned[:closing]
+        cleaned = cleaned.strip()
+    # Find the first { and last } to isolate the JSON object
+    start = cleaned.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(cleaned)):
+        if cleaned[i] == "{":
+            depth += 1
+        elif cleaned[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return cleaned[start : i + 1]
+    return None
+
+
+def _try_render_detection_overlay(
+    output_text: str, image_upload: Any, prompt_mode: str = ""
+) -> Any:
+    """Parse detection/segmentation JSON from model output and render an overlay image.
+
+    Returns a PIL Image if parsing and rendering succeed, otherwise None.
+    Dispatches to the appropriate renderer based on prompt_mode.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    text = (output_text or "").strip()
+    json_text = _extract_json_object(text)
+    if json_text is None:
+        return None
+    image_paths = _extract_paths(image_upload)
+    if not image_paths:
+        logger.warning("Detection overlay: no image paths from upload.")
+        return None
+
+    try:
+        from pathlib import Path
+
+        image_path = Path(image_paths[0])
+
+        if prompt_mode == PROMPT_MODE_SEGMENTATION_MASKS:
+            segments = load_segmentation_payload_json(json_text)
+            if not segments:
+                return None
+            return draw_segmentation_masks_on_image(image_path, segments)
+
+        detections = load_detection_payload_json(json_text)
+        if not detections:
+            return None
+        if prompt_mode == PROMPT_MODE_COLORED_MASKS:
+            return draw_colored_masks_on_image(image_path, detections)
+        return draw_detections_on_image(image_path, detections)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Detection overlay: failed to render: %s", exc)
+        return None
+
+
 def _run_compare(
+    prompt_mode: str,
     prompt: str,
     text_input: str,
     text_only: bool,
@@ -665,7 +842,7 @@ def _run_compare(
     model_b_gemma_max_soft_tokens: str,
     model_b_extra_body_json: str,
     model_b_extra_headers_json: str,
-) -> tuple[str, dict[str, Any], str, str, str, str, str, str]:
+) -> tuple[str, dict[str, Any], str, str, str, str, str, str, Any, Any]:
     try:
         target_a = _build_target_config(
             label=model_a_label,
@@ -743,18 +920,24 @@ def _run_compare(
             message,
             "_Invalid request._",
             message,
+            None,
+            None,
         )
 
     result = execute_and_persist_compare(request)
+    a_text = result.model_a_result.output_text.strip() or "_No output text returned._"
+    b_text = result.model_b_result.output_text.strip() or "_No output text returned._"
     return (
         _build_compare_summary(result),
         result.model_dump(),
         _build_target_status_markdown(result.model_a_result),
-        result.model_a_result.output_text.strip() or "_No output text returned._",
+        a_text,
         _build_effective_request_markdown(result.model_a_result),
         _build_target_status_markdown(result.model_b_result),
-        result.model_b_result.output_text.strip() or "_No output text returned._",
+        b_text,
         _build_effective_request_markdown(result.model_b_result),
+        _try_render_detection_overlay(a_text, image_upload, prompt_mode),
+        _try_render_detection_overlay(b_text, image_upload, prompt_mode),
     )
 
 
@@ -795,6 +978,7 @@ def build_ui_blocks() -> gr.Blocks:
         *,
         title: str,
         defaults: TargetDefaults,
+        gemma_max_soft_tokens_default: str = "",
     ) -> list[gr.components.Component]:
         with gr.Accordion(title, open=True, elem_classes=["panel"]):
             gr.Markdown(
@@ -823,50 +1007,84 @@ def build_ui_blocks() -> gr.Blocks:
                 minimum=1,
                 maximum=131072,
                 step=1,
-                value=defaults.request_defaults.max_tokens,
+                value=_display_default_request_value(
+                    defaults.request_defaults.max_tokens,
+                    DEFAULT_MAX_TOKENS,
+                ),
                 label="max_tokens",
+                interactive=_request_default_is_configured(defaults.request_defaults.max_tokens),
             )
             max_completion_tokens = gr.Slider(
                 minimum=1,
                 maximum=131072,
                 step=1,
-                value=defaults.request_defaults.max_completion_tokens,
+                value=_display_default_request_value(
+                    defaults.request_defaults.max_completion_tokens,
+                    DEFAULT_MAX_COMPLETION_TOKENS,
+                ),
                 label="max_completion_tokens",
+                interactive=_request_default_is_configured(
+                    defaults.request_defaults.max_completion_tokens
+                ),
             )
             temperature = gr.Slider(
                 minimum=0,
                 maximum=2,
                 step=0.05,
-                value=defaults.request_defaults.temperature,
+                value=_display_default_request_value(
+                    defaults.request_defaults.temperature,
+                    DEFAULT_TEMPERATURE,
+                ),
                 label="temperature",
+                interactive=_request_default_is_configured(defaults.request_defaults.temperature),
             )
             top_p = gr.Slider(
                 minimum=0.05,
                 maximum=1.0,
                 step=0.05,
-                value=defaults.request_defaults.top_p,
+                value=_display_default_request_value(
+                    defaults.request_defaults.top_p,
+                    DEFAULT_TOP_P,
+                ),
                 label="top_p",
+                interactive=_request_default_is_configured(defaults.request_defaults.top_p),
             )
             top_k = gr.Slider(
                 minimum=1,
                 maximum=200,
                 step=1,
-                value=defaults.request_defaults.top_k,
+                value=_display_default_request_value(
+                    defaults.request_defaults.top_k,
+                    defaults.request_defaults.top_k_placeholder,
+                ),
                 label="top_k",
+                interactive=_request_default_is_configured(defaults.request_defaults.top_k),
             )
             presence_penalty = gr.Slider(
                 minimum=-2,
                 maximum=2,
                 step=0.1,
-                value=defaults.request_defaults.presence_penalty,
+                value=_display_default_request_value(
+                    defaults.request_defaults.presence_penalty,
+                    DEFAULT_PRESENCE_PENALTY,
+                ),
                 label="presence_penalty",
+                interactive=_request_default_is_configured(
+                    defaults.request_defaults.presence_penalty
+                ),
             )
             frequency_penalty = gr.Slider(
                 minimum=-2,
                 maximum=2,
                 step=0.1,
-                value=defaults.request_defaults.frequency_penalty,
+                value=_display_default_request_value(
+                    defaults.request_defaults.frequency_penalty,
+                    DEFAULT_FREQUENCY_PENALTY,
+                ),
                 label="frequency_penalty",
+                interactive=_request_default_is_configured(
+                    defaults.request_defaults.frequency_penalty
+                ),
             )
             thinking_mode = gr.Radio(
                 choices=["auto", "on", "off"],
@@ -896,7 +1114,7 @@ def build_ui_blocks() -> gr.Blocks:
             gemma_max_soft_tokens = gr.Dropdown(
                 label="Gemma max_soft_tokens override",
                 choices=GEMMA_MAX_SOFT_TOKEN_CHOICES,
-                value="",
+                value=gemma_max_soft_tokens_default,
                 info="Gemma-only vision token budget override: 70/140/280/560/1120.",
             )
             extra_body_json = gr.Textbox(
@@ -955,17 +1173,11 @@ def build_ui_blocks() -> gr.Blocks:
                 elem_classes=["tab-note"],
             )
             with gr.Column(elem_classes=["panel", "control-panel"]):
-                with gr.Row(equal_height=False):
-                    prompt_mode = gr.Radio(
-                        choices=PROMPT_MODE_CHOICES,
-                        label="Prompt Mode",
-                        value=PROMPT_MODE_CUSTOM,
-                    )
-                    tag_categories = gr.Textbox(
-                        label="Tag Categories (CSV)",
-                        value=DEFAULT_TAG_CATEGORIES,
-                        info="Used by Tagging and Classifier presets.",
-                    )
+                prompt_mode = gr.Radio(
+                    choices=PROMPT_MODE_CHOICES,
+                    label="Prompt Mode",
+                    value=PROMPT_MODE_CUSTOM,
+                )
                 prompt = gr.Textbox(label="Prompt", lines=5, value=DEFAULT_CUSTOM_PROMPT)
                 text_input = gr.Textbox(
                     label="Additional Text Input / Query (optional)",
@@ -998,8 +1210,8 @@ def build_ui_blocks() -> gr.Blocks:
                         )
 
                 with gr.Accordion("Shared Preprocessing + Segmentation", open=False):
-                    preprocess_images = gr.Checkbox(label="Preprocess images", value=True)
-                    preprocess_video = gr.Checkbox(label="Preprocess video", value=True)
+                    preprocess_images = gr.Checkbox(label="Preprocess images", value=False)
+                    preprocess_video = gr.Checkbox(label="Preprocess video", value=False)
                     target_height = gr.Slider(
                         minimum=128,
                         maximum=1080,
@@ -1089,6 +1301,7 @@ def build_ui_blocks() -> gr.Blocks:
                         model_b_inputs = build_target_panel(
                             title=settings.model_b.label,
                             defaults=settings.model_b,
+                            gemma_max_soft_tokens_default="560",
                         )
 
             with gr.Row(equal_height=False):
@@ -1101,6 +1314,14 @@ def build_ui_blocks() -> gr.Blocks:
                         f"{settings.model_a.label} output will appear here.",
                         elem_id="model-a-output",
                         elem_classes=["readable-output", "output-pane"],
+                    )
+                    model_a_detection_image = gr.Image(
+                        label="Detection Overlay",
+                        visible=True,
+                        show_label=True,
+                        interactive=False,
+                        buttons=["fullscreen", "download"],
+                        value=None,
                     )
                     with gr.Accordion("Status + Tokens", open=False):
                         model_a_status = gr.Markdown(
@@ -1122,6 +1343,14 @@ def build_ui_blocks() -> gr.Blocks:
                         f"{settings.model_b.label} output will appear here.",
                         elem_id="model-b-output",
                         elem_classes=["readable-output", "output-pane"],
+                    )
+                    model_b_detection_image = gr.Image(
+                        label="Detection Overlay",
+                        visible=True,
+                        show_label=True,
+                        interactive=False,
+                        buttons=["fullscreen", "download"],
+                        value=None,
                     )
                     with gr.Accordion("Status + Tokens", open=False):
                         model_b_status = gr.Markdown(
@@ -1189,7 +1418,7 @@ def build_ui_blocks() -> gr.Blocks:
             video_cache_uuids,
             disable_caching,
         ]
-        compare_inputs = shared_inputs + model_a_inputs + model_b_inputs
+        compare_inputs = [prompt_mode] + shared_inputs + model_a_inputs + model_b_inputs
 
         compare_button.click(
             fn=_run_compare,
@@ -1203,16 +1432,13 @@ def build_ui_blocks() -> gr.Blocks:
                 model_b_status,
                 model_b_output,
                 model_b_effective,
+                model_a_detection_image,
+                model_b_detection_image,
             ],
         )
         prompt_mode.change(
             fn=_apply_prompt_mode,
-            inputs=[prompt_mode, prompt, tag_categories],
-            outputs=[prompt],
-        )
-        tag_categories.change(
-            fn=_refresh_prompt_for_tagging,
-            inputs=[prompt_mode, prompt, tag_categories],
+            inputs=[prompt_mode, prompt],
             outputs=[prompt],
         )
         segmentation_profile.change(

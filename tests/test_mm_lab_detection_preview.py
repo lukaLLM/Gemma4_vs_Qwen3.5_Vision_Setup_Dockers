@@ -21,6 +21,7 @@ from scripts.plot_coins_bbox import (  # noqa: E402
 )
 from visual_experimentation_app.detection_preview import (  # noqa: E402
     parse_detection_payload,
+    parse_segmentation_payload,
     write_detection_preview,
 )
 
@@ -72,6 +73,85 @@ class DetectionPreviewTest(unittest.TestCase):
                     ]
                 }
             )
+
+    def test_parse_detection_payload_accepts_box_2d_format(self) -> None:
+        """box_2d [y1, x1, y2, x2] on 0–1000 grid should be converted to bbox_norm [x0,y0,x1,y1]."""
+        detections = parse_detection_payload(
+            {
+                "detections": [
+                    {
+                        "label": "person",
+                        "box_2d": [244, 256, 948, 405],
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(detections), 1)
+        x0, y0, x1, y1 = detections[0].bbox_norm
+        self.assertAlmostEqual(x0, 0.256)
+        self.assertAlmostEqual(y0, 0.244)
+        self.assertAlmostEqual(x1, 0.405)
+        self.assertAlmostEqual(y1, 0.948)
+
+    def test_parse_detection_payload_box_2d_takes_precedence_over_bbox_norm(self) -> None:
+        """When both keys are present, box_2d should be used."""
+        detections = parse_detection_payload(
+            {
+                "detections": [
+                    {
+                        "label": "car",
+                        "box_2d": [500, 0, 750, 500],
+                        "bbox_norm": [0.0, 0.0, 1.0, 1.0],
+                    }
+                ]
+            }
+        )
+        x0, y0, x1, y1 = detections[0].bbox_norm
+        self.assertAlmostEqual(x0, 0.0)
+        self.assertAlmostEqual(y0, 0.5)
+        self.assertAlmostEqual(x1, 0.5)
+        self.assertAlmostEqual(y1, 0.75)
+
+    def test_parse_detection_payload_box_2d_rejects_invalid_order(self) -> None:
+        """box_2d with y2 <= y1 should raise ValueError."""
+        with self.assertRaises(ValueError):
+            parse_detection_payload(
+                {
+                    "detections": [
+                        {
+                            "label": "cat",
+                            "box_2d": [800, 100, 200, 400],
+                        }
+                    ]
+                }
+            )
+
+    def test_parse_segmentation_payload_accepts_box_2d_and_polygon_2d(self) -> None:
+        """Segmentation payload with box_2d and polygon_2d should be descaled and reordered."""
+        results = parse_segmentation_payload(
+            {
+                "segments": [
+                    {
+                        "label": "cat",
+                        "box_2d": [357, 606, 655, 803],
+                        "polygon_2d": [
+                            [357, 606], [357, 803], [500, 803],
+                            [655, 803], [655, 606], [500, 606],
+                        ],
+                        "color": "orange",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(results), 1)
+        seg = results[0]
+        self.assertAlmostEqual(seg.bbox_norm[0], 0.606)  # x0 = x1_raw/1000
+        self.assertAlmostEqual(seg.bbox_norm[1], 0.357)  # y0 = y1_raw/1000
+        self.assertAlmostEqual(seg.bbox_norm[2], 0.803)  # x1 = x2_raw/1000
+        self.assertAlmostEqual(seg.bbox_norm[3], 0.655)  # y1 = y2_raw/1000
+        # polygon reordered from [y, x] to (x, y)
+        self.assertAlmostEqual(seg.polygon_norm[0][0], 0.606)  # x
+        self.assertAlmostEqual(seg.polygon_norm[0][1], 0.357)  # y
 
     def test_plot_coins_bbox_script_uses_module_bbox_variable(self) -> None:
         """Coins plot script should use the module bbox variable."""

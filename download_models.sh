@@ -13,13 +13,17 @@
 set -euo pipefail
 
 if [[ -z "${HF_TOKEN:-}" ]]; then
-  if [[ -f ".env" ]] && grep -qE '^HF_TOKEN=' ".env"; then
+  if [[ -f ".env" ]] && grep -qE '^[[:space:]]*(export[[:space:]]+)?HF_TOKEN=' ".env"; then
     # Load HF_TOKEN from local project env file if present.
     set -a
     # shellcheck disable=SC1091
     source .env
     set +a
   fi
+fi
+
+if ! command -v hf >/dev/null 2>&1 && [[ -x ".venv/bin/hf" ]]; then
+  export PATH="$PWD/.venv/bin:$PATH"
 fi
 
 if ! command -v hf >/dev/null 2>&1; then
@@ -46,11 +50,12 @@ download_or_exit() {
   local repo="$1"
   shift
 
-  if hf download "$repo" --type model "$@"; then
+  local rc=0
+  hf download "$repo" --type model "$@" || rc=$?
+  if [[ $rc -eq 0 ]]; then
     return 0
   fi
 
-  local rc=$?
   if [[ $rc -eq 130 ]]; then
     echo "Interrupted by Ctrl+C."
     exit 130
@@ -67,6 +72,8 @@ GGUF_MODELS=()
 HF_MODELS=(
   "Qwen/Qwen3.5-27B-FP8"
   "RedHatAI/gemma-4-31B-it-FP8-block"
+  "Qwen/Qwen3.6-27B-FP8"
+  "Qwen/Qwen-Image-Edit-2511"
 )
 
 for REPO in "${GGUF_MODELS[@]}"; do
